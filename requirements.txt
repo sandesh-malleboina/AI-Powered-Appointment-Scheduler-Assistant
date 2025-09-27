@@ -1,0 +1,13 @@
+fastapi             # The web framework
+uvicorn             # ASGI server to run FastAPI
+sqlalchemy          # ORM for SQLite database
+pydantic            # For request/response schemas
+python-multipart    # For handling file uploads
+
+paddle opcr
+
+dateparser
+spacy transformers
+
+download en_core_web_trf
+

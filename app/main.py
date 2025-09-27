@@ -1,67 +1,85 @@
-from fastapi import FastAPI,Path
-from pydantic import BaseModel
-from typing import Optional
+# app/main.py
+import os
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Depends, HTTPException
+from sqlalchemy.orm import Session
+from . import models, database, schemas
+from .routers import results   # <-- import router
+from ML import ocr, summarizer 
+
+
+
+models.Base.metadata.create_all(bind=database.engine)
+
 app = FastAPI()
 
 
-students = {
-    1: {"name": "John", 
-        "age": 22,
-        "year":2022
-        }
-}
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-class Student(BaseModel):
-    name: str
-    age: int
-    year: int
+# Register router
+app.include_router(results.router)
 
-class UpdateStudent(BaseModel):
-    name:Optional[str]=None
-    age: Optional[int]=None
-    year: Optional[int]=None
+# -----------------------------
+# Background Processing Function
+# -----------------------------
+def process_file(doc_id: int, db_session: Session):
+    doc = db_session.query(models.Document).get(doc_id)
+    if not doc:
+        return
+    try:
+        doc.status = "processing"
+        db_session.commit()
+        extracted_text = ocr.run_ocr(doc.filepath)
+        summary_dict = summarizer.summarize_text(extracted_text)
+        doc.content = extracted_text
+        # doc.summary = summary_text
+        doc.date = summary_dict.get("date")
+        doc.time = summary_dict.get("time")
+        doc.department = summary_dict.get("department")
+        doc.status = "completed"
+        doc.error_msg = None
+        db_session.commit()
+    except Exception as e:
+        doc.status = "failed"
+        doc.error_msg = str(e)
+        db_session.commit()
 
 @app.get("/")
 def root():
-    return {"message": "hi,k how are you"}
+    return {"message": "API is running"}
 
-@app.post("/echo")
-def echo(data:str):
-    return {"you sent": data}
 
-@app.get("/students/{student_id}")
-def get_student(student_id: int=Path(...,description="The ID of the student to get")):
-    return students[student_id]
+@app.post("/upload", response_model=schemas.DocumentResponse)
+async def upload_file(
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
+    db: Session = Depends(database.get_db)
+):
+    allowed_ext = (".pdf", ".png", ".jpg", ".jpeg", ".txt")
+    if not file.filename.lower().endswith(allowed_ext):
+        raise HTTPException(status_code=400, detail="Unsupported file type")
 
-@app.get("/get-by-name/")
-def get_student_by_name(name: str=None):
-    for student in students:
-        if students[student]["name"] == name:
-            return students[student]
-    return {"Data": "not found"}
+    save_path = os.path.join(UPLOAD_DIR, file.filename)
+    with open(save_path, "wb") as f:
+        f.write(await file.read())
 
-@app.post("/create-student/{student_id}")
-def create_student(student_id : int, student:Student):
-    if student_id in students:
-        return {"Error": "Student already exists"}
-    students[student_id] = student
-    return students[student_id]
+    doc = models.Document(filename=file.filename, filepath=save_path, status="pending")
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
 
-@app.put("/update-student/{student_id}")
-def update_student(student_id : int, student:UpdateStudent):
-    if student_id not in students:
-        return {"Error": "Student does not exist"}
-    if student.name != None:
-        students[student_id].name = student.name
-    if student.age != None:
-        students[student_id].age = student.age
-    if student.year != None:
-        students[student_id].year = student.year
-    return students[student_id]
+    background_tasks.add_task(process_file, doc.id, db)
+    return doc
 
-@app.delete("/delete-student/{student_id}")
-def delete_student(student_id : int ):
-    if student_id not in students:
-        return {"msg":"not there"}
-    del students[student_id]
-    return {"msg":"deleted"}
+@app.post("/retry/{doc_id}", response_model=schemas.DocumentResponse)
+def retry_processing(doc_id: int, background_tasks: BackgroundTasks = None, db: Session = Depends(database.get_db)):
+    doc = db.query(models.Document).get(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    doc.status = "pending"
+    doc.error_msg = None
+    db.commit()
+
+    background_tasks.add_task(process_file, doc.id, db)
+    return doc
