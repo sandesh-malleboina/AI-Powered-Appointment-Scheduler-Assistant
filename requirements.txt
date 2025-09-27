@@ -3,11 +3,8 @@ uvicorn             # ASGI server to run FastAPI
 sqlalchemy          # ORM for SQLite database
 pydantic            # For request/response schemas
 python-multipart    # For handling file uploads
-
-paddle opcr
-
+paddleocr
 dateparser
 spacy transformers
 
-download en_core_web_trf
 
