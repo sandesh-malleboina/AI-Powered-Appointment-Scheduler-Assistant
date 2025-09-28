@@ -3,8 +3,10 @@ uvicorn             # ASGI server to run FastAPI
 sqlalchemy          # ORM for SQLite database
 pydantic            # For request/response schemas
 python-multipart    # For handling file uploads
-paddleocr
-dateparser
-spacy transformers
-passlib[argon2]
-pyhton-jose
+paddleocr           # OCR extraction
+dateparser          # Date/time parsing
+spacy               # NLP processing
+transformers        # SpaCy transformer model
+passlib[argon2]     # Password hashing
+python-jose         # JWT token handling
+Pillow              # Image processing (used by PaddleOCR)
