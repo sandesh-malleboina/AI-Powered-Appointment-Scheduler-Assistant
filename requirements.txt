@@ -6,5 +6,5 @@ python-multipart    # For handling file uploads
 paddleocr
 dateparser
 spacy transformers
-
-
+passlib[argon2]
+pyhton-jose
